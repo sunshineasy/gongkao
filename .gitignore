@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.next/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

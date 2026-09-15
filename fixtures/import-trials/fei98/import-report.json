@@ -1,0 +1,51 @@
+{
+  "source": "fei98/civil-service-exam-prep",
+  "adapterVersion": "2.0.0",
+  "schemaVersion": "1.0",
+  "sourceCommit": "3aa81a5c9e2f73615c9eed19870f0475442a0dfc",
+  "records": {
+    "sourceRecords": 5000,
+    "supportedTypeRecords": 4968,
+    "unsupportedTypeRecords": 32,
+    "structurallyValidRecords": 4906,
+    "structurallyInvalidRecords": 94,
+    "candidateRecords": 4906,
+    "sampledRecords": 50,
+    "convertedRecords": 50,
+    "validRecords": 50,
+    "needsReviewRecords": 0,
+    "rejectedRecords": 94,
+    "duplicateRecords": 0
+  },
+  "issueCounts": {
+    "optionsMissingOrInvalid": 57,
+    "unsupportedType": 32,
+    "multiValueAnswer": 24
+  },
+  "moduleDistribution": {
+    "常识判断": 10,
+    "言语理解": 10,
+    "数量关系": 10,
+    "判断推理": 10,
+    "资料分析": 10
+  },
+  "materials": 0,
+  "media": {
+    "mediaReferenced": 11,
+    "mediaDownloadAttempted": 11,
+    "mediaDownloaded": 11,
+    "mediaFailed": 0,
+    "mediaNeedsReview": 0
+  },
+  "questionsWithoutAnalysis": 0,
+  "questionsWithoutPaperContext": 0,
+  "schemaValidation": "PASS",
+  "crossObjectValidation": "PASS",
+  "needsReviewQuestionIds": [],
+  "warnings": [],
+  "errors": [],
+  "sourceFieldNotes": [
+    "sourceType is captured as provenance context, not copied as a source-specific enum",
+    "current source has no chart field and no reliable shared material relationship"
+  ]
+}

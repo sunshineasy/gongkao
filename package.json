@@ -1,0 +1,26 @@
+{
+  "name": "gongkao-v1",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "tsc --noEmit",
+    "test:m1": "tsx scripts/test-m1.ts",
+    "question-bank:validate": "tsx scripts/validate-question-bank.ts fixtures/import-trials/fei98/question-bank-v1.json",
+    "fei98:adapter:test": "tsx scripts/test-fei98-adapter.ts",
+    "fei98:media:test": "tsx scripts/test-fei98-media.ts",
+    "study:v1-import:test": "tsx scripts/test-study-v1-importer.ts"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/sql.js": "^1.4.9",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
