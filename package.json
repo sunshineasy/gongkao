@@ -11,6 +11,7 @@
     "test:m2.1-a": "tsx scripts/test-m2-1-a.ts",
     "test:m2.1-b": "tsx scripts/test-m2-1-b.ts",
     "test:m2.2-a": "tsx scripts/test-m2-2-a.ts",
+    "test:m2.2-b": "tsx scripts/test-m2-2-b.ts",
     "question-bank:validate": "tsx scripts/validate-question-bank.ts fixtures/import-trials/fei98/question-bank-v1.json",
     "fei98:adapter:test": "tsx scripts/test-fei98-adapter.ts",
     "fei98:media:test": "tsx scripts/test-fei98-media.ts",
