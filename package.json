@@ -7,6 +7,7 @@
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
     "test:m1": "tsx scripts/test-m1.ts",
+    "test:m1.1": "tsx scripts/test-m1-1.ts",
     "question-bank:validate": "tsx scripts/validate-question-bank.ts fixtures/import-trials/fei98/question-bank-v1.json",
     "fei98:adapter:test": "tsx scripts/test-fei98-adapter.ts",
     "fei98:media:test": "tsx scripts/test-fei98-media.ts",

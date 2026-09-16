@@ -2,8 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import initSqlJs, { type Database } from "sql.js";
 import { validateQuestionBank } from "./question-bank.js";
+import { normalizeQuestionText } from "./question-text.js";
 
-export type StudyQuestion = { externalId: string; module: string | null; stem: string; explanation: string | null; correctAnswer: string[]; materialExternalId: string | null; options: { key: string; text: string | null; media: string[] }[]; knowledgePoints: { externalId: string; name: string }[]; media: { externalId: string; path: string; url: string | null }[] };
+export type StudyMedia = { externalId: string; path: string; url: string | null };
+export type StudyMaterial = { externalId: string; title: string | null; content: string | null; media: StudyMedia[] };
+export type StudyQuestion = { externalId: string; module: string | null; stem: string; explanation: string | null; correctAnswer: string[]; materialExternalId: string | null; material: StudyMaterial | null; options: { key: string; text: string | null; media: StudyMedia[] }[]; knowledgePoints: { externalId: string; name: string }[]; media: StudyMedia[] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- V1 packages are external JSON validated at import.
 type Bank = Record<string, any>;
 type SqlValue = string | number | null | Uint8Array;
@@ -36,7 +39,18 @@ export async function importQuestionBankV1(bank: Bank, file = path.join(process.
   } catch (error) { db.run("ROLLBACK"); throw error; }
 }
 
-export async function getStudyQuestion(externalId: string, file?: string): Promise<StudyQuestion | undefined> { const db = await open(file ?? path.join(process.cwd(), "prisma", "question-bank-v1.db")); const question = rows(db, "SELECT * FROM v1_questions WHERE externalId = ?", [externalId])[0]; if (!question) return undefined; const options = rows(db, "SELECT optionKey, text, media FROM v1_options WHERE questionExternalId = ? ORDER BY optionKey", [externalId]).map((row) => ({ key: String(row.optionKey), text: row.text as string | null, media: JSON.parse(String(row.media)) })); const knowledgePoints = rows(db, "SELECT k.externalId, k.name FROM v1_knowledge_points k JOIN v1_question_knowledge_points q ON q.knowledgePointExternalId = k.externalId WHERE q.questionExternalId = ?", [externalId]).map((row) => ({ externalId: String(row.externalId), name: String(row.name) })); const media = rows(db, "SELECT m.externalId, m.mediaPath, m.url FROM v1_media m JOIN v1_question_media q ON q.mediaExternalId = m.externalId WHERE q.questionExternalId = ?", [externalId]).map((row) => ({ externalId: String(row.externalId), path: String(row.mediaPath), url: row.url as string | null })); return { externalId: String(question.externalId), module: question.module as string | null, stem: String(question.stem), explanation: question.explanation as string | null, correctAnswer: JSON.parse(String(question.correctAnswer)), materialExternalId: question.materialExternalId as string | null, options, knowledgePoints, media }; }
+const mediaForIds = (db: Database, ids: string[]): StudyMedia[] => ids.flatMap((id) => rows(db, "SELECT externalId, mediaPath, url FROM v1_media WHERE externalId = ?", [id]).map((row) => ({ externalId: String(row.externalId), path: String(row.mediaPath), url: row.url as string | null })));
+
+export async function getStudyQuestion(externalId: string, file?: string): Promise<StudyQuestion | undefined> {
+  const db = await open(file ?? path.join(process.cwd(), "prisma", "question-bank-v1.db")); const question = rows(db, "SELECT * FROM v1_questions WHERE externalId = ?", [externalId])[0]; if (!question) return undefined;
+  const rawOptions = rows(db, "SELECT optionKey, text, media FROM v1_options WHERE questionExternalId = ? ORDER BY optionKey", [externalId]).map((row) => ({ key: String(row.optionKey), text: row.text as string | null, mediaIds: JSON.parse(String(row.media)) as string[] }));
+  const optionMediaIds = new Set(rawOptions.flatMap((option) => option.mediaIds));
+  const allQuestionMediaIds = rows(db, "SELECT mediaExternalId FROM v1_question_media WHERE questionExternalId = ?", [externalId]).map((row) => String(row.mediaExternalId));
+  const materialRow = question.materialExternalId ? rows(db, "SELECT * FROM v1_materials WHERE externalId = ?", [String(question.materialExternalId)])[0] : undefined;
+  const material = materialRow ? { externalId: String(materialRow.externalId), title: normalizeQuestionText(materialRow.title as string | null), content: normalizeQuestionText(materialRow.content as string | null), media: mediaForIds(db, JSON.parse(String(materialRow.media)) as string[]) } : null;
+  const knowledgePoints = rows(db, "SELECT k.externalId, k.name FROM v1_knowledge_points k JOIN v1_question_knowledge_points q ON q.knowledgePointExternalId = k.externalId WHERE q.questionExternalId = ?", [externalId]).map((row) => ({ externalId: String(row.externalId), name: String(row.name) }));
+  return { externalId: String(question.externalId), module: question.module as string | null, stem: normalizeQuestionText(String(question.stem))!, explanation: normalizeQuestionText(question.explanation as string | null), correctAnswer: JSON.parse(String(question.correctAnswer)), materialExternalId: question.materialExternalId as string | null, material, options: rawOptions.map((option) => ({ key: option.key, text: normalizeQuestionText(option.text), media: mediaForIds(db, option.mediaIds) })), knowledgePoints, media: mediaForIds(db, allQuestionMediaIds.filter((id) => !optionMediaIds.has(id))) };
+}
 export async function getStudyQuestionsByModule(module: string, file?: string) { const db = await open(file ?? path.join(process.cwd(), "prisma", "question-bank-v1.db")); return rows(db, "SELECT externalId FROM v1_questions WHERE module = ? ORDER BY externalId", [module]).map((row) => String(row.externalId)); }
 export async function getRandomStudyQuestions(limit: number, file?: string) { const db = await open(file ?? path.join(process.cwd(), "prisma", "question-bank-v1.db")); return rows(db, "SELECT externalId FROM v1_questions ORDER BY RANDOM() LIMIT ?", [limit]).map((row) => String(row.externalId)); }
 export async function getAllStudyQuestionIds(file?: string) { const db = await open(file ?? path.join(process.cwd(), "prisma", "question-bank-v1.db")); return rows(db, "SELECT externalId FROM v1_questions ORDER BY externalId").map((row) => String(row.externalId)); }
