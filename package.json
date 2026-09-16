@@ -1,5 +1,5 @@
 {
-  "name": "gongkao-v1",
+  "name": "gongkao",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,6 +8,8 @@
     "lint": "tsc --noEmit",
     "test:m1": "tsx scripts/test-m1.ts",
     "test:m1.1": "tsx scripts/test-m1-1.ts",
+    "test:m2.1-a": "tsx scripts/test-m2-1-a.ts",
+    "test:m2.1-b": "tsx scripts/test-m2-1-b.ts",
     "question-bank:validate": "tsx scripts/validate-question-bank.ts fixtures/import-trials/fei98/question-bank-v1.json",
     "fei98:adapter:test": "tsx scripts/test-fei98-adapter.ts",
     "fei98:media:test": "tsx scripts/test-fei98-media.ts",

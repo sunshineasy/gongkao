@@ -1,31 +1,89 @@
-import fs from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
 import path from "node:path";
-import initSqlJs, { type Database } from "sql.js";
+import { randomUUID } from "node:crypto";
 
-export type Attempt = { id: number; questionExternalId: string; selectedAnswer: string; isCorrect: boolean; answeredAt: string };
+export type User = { id: string; nickname: string; createdAt: string; isActive: boolean };
+export type SessionType = "normal" | "special";
+export type SessionStatus = "in_progress" | "completed" | "ended" | "invalidated";
+export type LearningContext = "normal" | "special" | "wrongReview";
+export type Session = { id: string; userId: string; type: SessionType; status: SessionStatus; plannedQuestionCount: number; traversedQuestionCount: number; answeredQuestionCount: number; createdAt: string; finishedAt: string | null; invalidatedAt: string | null };
+export type SessionQuestion = { sessionId: string; questionExternalId: string; sequence: number; traversedAt: string | null };
+export type Attempt = { id: string; submissionId: string | null; userId: string; questionExternalId: string; submittedAnswer: string; isCorrect: boolean; submittedAt: string; cumulativeAnswerDuration: number; sessionId: string | null; learningContext: LearningContext };
+export type LearningState = { userId: string; questionExternalId: string; isWrong: boolean; lastAttemptAt: string | null; updatedAt: string };
+export type SubmitAttemptInput = Omit<Attempt, "id" | "submittedAt" | "submissionId"> & { submissionId: string };
+const now = () => new Date().toISOString();
+const yes = (v: unknown) => Number(v) === 1;
+const userDataSchemaVersion = "M2.1";
 
-async function open(file: string): Promise<Database> {
-  const SQL = await initSqlJs({ locateFile: (name) => path.join(process.cwd(), "node_modules", "sql.js", "dist", name) });
-  let db: Database;
-  try { db = new SQL.Database(await fs.readFile(file)); } catch { db = new SQL.Database(); }
-  db.run("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, questionExternalId TEXT NOT NULL, selectedAnswer TEXT NOT NULL, isCorrect INTEGER NOT NULL, answeredAt TEXT NOT NULL)");
+function open(file: string) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const db = new DatabaseSync(file);
+  db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
+  const hasAttempts = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").get();
+  if (hasAttempts) {
+    const columns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "userId")) {
+      db.close();
+      throw new Error("当前本地私人数据库属于旧开发结构，无法用于 M2.1。开发测试数据可删除 data/user-data.db 后重新启动；正式用户数据不会被自动删除。");
+    }
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,nickname TEXT NOT NULL,createdAt TEXT NOT NULL,isActive INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS app_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_data_meta(schemaVersion TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),type TEXT NOT NULL CHECK(type IN ('normal','special')),status TEXT NOT NULL CHECK(status IN ('in_progress','completed','ended','invalidated')),plannedQuestionCount INTEGER NOT NULL,createdAt TEXT NOT NULL,finishedAt TEXT,invalidatedAt TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_user ON sessions(userId) WHERE status='in_progress';
+CREATE TABLE IF NOT EXISTS session_questions(sessionId TEXT NOT NULL REFERENCES sessions(id),questionExternalId TEXT NOT NULL,sequence INTEGER NOT NULL,traversedAt TEXT,PRIMARY KEY(sessionId,questionExternalId),UNIQUE(sessionId,sequence));
+CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,submissionId TEXT,userId TEXT NOT NULL REFERENCES users(id),questionExternalId TEXT NOT NULL,submittedAnswer TEXT NOT NULL,isCorrect INTEGER NOT NULL,submittedAt TEXT NOT NULL,cumulativeAnswerDuration INTEGER NOT NULL CHECK(cumulativeAnswerDuration>=0),sessionId TEXT REFERENCES sessions(id),learningContext TEXT NOT NULL CHECK(learningContext IN ('normal','special','wrongReview')),CHECK((learningContext='wrongReview' AND sessionId IS NULL) OR learningContext!='wrongReview'));
+CREATE INDEX IF NOT EXISTS attempts_by_user_question ON attempts(userId,questionExternalId,submittedAt);
+CREATE TABLE IF NOT EXISTS wrong_question_operations(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),questionExternalId TEXT NOT NULL,operation TEXT NOT NULL CHECK(operation='remove'),operatedAt TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS wrong_operations_by_question ON wrong_question_operations(userId,questionExternalId,operatedAt);
+CREATE TABLE IF NOT EXISTS learning_states(userId TEXT NOT NULL REFERENCES users(id),questionExternalId TEXT NOT NULL,isWrong INTEGER NOT NULL,lastAttemptAt TEXT,updatedAt TEXT NOT NULL,PRIMARY KEY(userId,questionExternalId));`);
+  const version = db.prepare("SELECT schemaVersion FROM user_data_meta LIMIT 1").get() as { schemaVersion: string } | undefined;
+  if (version && version.schemaVersion !== userDataSchemaVersion) {
+    db.close();
+    throw new Error(`当前本地私人数据库版本 ${version.schemaVersion} 与 M2.1 不兼容。开发测试数据可删除 data/user-data.db 后重新启动；正式用户数据不会被自动删除。`);
+  }
+  if (!version) db.prepare("INSERT INTO user_data_meta VALUES(?)").run(userDataSchemaVersion);
+  try { db.exec("ALTER TABLE attempts ADD COLUMN submissionId TEXT"); } catch { /* New databases already have the column. */ }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS attempts_by_submission ON attempts(submissionId) WHERE submissionId IS NOT NULL;");
   return db;
 }
-
-async function save(db: Database, file: string) { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, db.export()); }
-
-export async function initializeUserData(file: string) { const db = await open(file); await save(db, file); }
-
-export async function saveAttempt(input: Omit<Attempt, "id" | "answeredAt">, file: string): Promise<Attempt> {
-  const db = await open(file); const answeredAt = new Date().toISOString();
-  db.run("INSERT INTO attempts (questionExternalId, selectedAnswer, isCorrect, answeredAt) VALUES (?, ?, ?, ?)", [input.questionExternalId, input.selectedAnswer, input.isCorrect ? 1 : 0, answeredAt]);
-  const row = db.exec("SELECT id, questionExternalId, selectedAnswer, isCorrect, answeredAt FROM attempts ORDER BY id DESC LIMIT 1")[0]?.values[0];
-  await save(db, file);
-  if (!row) throw new Error("Attempt insert failed");
-  return { id: Number(row[0]), questionExternalId: String(row[1]), selectedAnswer: String(row[2]), isCorrect: Boolean(row[3]), answeredAt: String(row[4]) };
+function requireUser(db: DatabaseSync, id: string) { if (!db.prepare("SELECT 1 FROM users WHERE id=?").get(id)) throw new Error("Unknown user"); }
+function mapUser(r: Record<string, unknown>): User { return { id: String(r.id), nickname: String(r.nickname), createdAt: String(r.createdAt), isActive: yes(r.isActive) }; }
+function session(db: DatabaseSync, id: string): Session {
+  const r = db.prepare(`SELECT s.*,(SELECT COUNT(*) FROM session_questions q WHERE q.sessionId=s.id AND q.traversedAt IS NOT NULL) traversed,(SELECT COUNT(DISTINCT questionExternalId) FROM attempts WHERE sessionId=s.id) answered FROM sessions s WHERE s.id=?`).get(id) as Record<string, unknown> | undefined;
+  if (!r) throw new Error("Unknown session");
+  return { id: String(r.id), userId: String(r.userId), type: r.type as SessionType, status: r.status as SessionStatus, plannedQuestionCount: Number(r.plannedQuestionCount), traversedQuestionCount: Number(r.traversed), answeredQuestionCount: Number(r.answered), createdAt: String(r.createdAt), finishedAt: r.finishedAt as string | null, invalidatedAt: r.invalidatedAt as string | null };
 }
-
-export async function getAttempts(file: string): Promise<Attempt[]> {
-  const db = await open(file); const result = db.exec("SELECT id, questionExternalId, selectedAnswer, isCorrect, answeredAt FROM attempts ORDER BY id")[0];
-  return (result?.values ?? []).map((row) => ({ id: Number(row[0]), questionExternalId: String(row[1]), selectedAnswer: String(row[2]), isCorrect: Boolean(row[3]), answeredAt: String(row[4]) }));
+function mapAttempt(r: Record<string, unknown>): Attempt { return { id: String(r.id), submissionId: r.submissionId as string | null, userId: String(r.userId), questionExternalId: String(r.questionExternalId), submittedAnswer: String(r.submittedAnswer), isCorrect: yes(r.isCorrect), submittedAt: String(r.submittedAt), cumulativeAnswerDuration: Number(r.cumulativeAnswerDuration), sessionId: r.sessionId as string | null, learningContext: r.learningContext as LearningContext }; }
+function recalc(db: DatabaseSync, userId: string, questionExternalId: string) {
+  const a = db.prepare(`SELECT a.isCorrect,a.submittedAt FROM attempts a LEFT JOIN sessions s ON s.id=a.sessionId WHERE a.userId=? AND a.questionExternalId=? AND (a.sessionId IS NULL OR s.status!='invalidated') ORDER BY a.submittedAt DESC,a.id DESC LIMIT 1`).get(userId,questionExternalId) as {isCorrect:number;submittedAt:string}|undefined;
+  const removed = db.prepare("SELECT operatedAt FROM wrong_question_operations WHERE userId=? AND questionExternalId=? ORDER BY operatedAt DESC,id DESC LIMIT 1").get(userId,questionExternalId) as {operatedAt:string}|undefined;
+  const wrong = !!a && !yes(a.isCorrect) && (!removed || a.submittedAt > removed.operatedAt);
+  db.prepare("INSERT INTO learning_states VALUES(?,?,?,?,?) ON CONFLICT(userId,questionExternalId) DO UPDATE SET isWrong=excluded.isWrong,lastAttemptAt=excluded.lastAttemptAt,updatedAt=excluded.updatedAt").run(userId,questionExternalId,wrong?1:0,a?.submittedAt??null,now());
 }
+export async function initializeUserData(file:string) { const db=open(file);db.close(); }
+export async function createUser(input:{nickname:string},file:string):Promise<User>{const db=open(file);try{const nickname=input.nickname.trim();if(!nickname)throw new Error("Nickname is required");const u={id:randomUUID(),nickname,createdAt:now(),isActive:true};db.prepare("INSERT INTO users VALUES(?,?,?,1)").run(u.id,u.nickname,u.createdAt);return u;}finally{db.close();}}
+export async function getUser(id:string,file:string):Promise<User|undefined>{const db=open(file);try{const r=db.prepare("SELECT * FROM users WHERE id=?").get(id) as Record<string,unknown>|undefined;return r?mapUser(r):undefined;}finally{db.close();}}
+export async function listUsers(file:string):Promise<User[]>{const db=open(file);try{return (db.prepare("SELECT * FROM users ORDER BY createdAt").all() as Record<string,unknown>[]).map(mapUser);}finally{db.close();}}
+export async function renameUser(id:string,nickname:string,file:string):Promise<User>{const db=open(file);try{const name=nickname.trim();if(!name)throw new Error("Nickname is required");if(db.prepare("UPDATE users SET nickname=? WHERE id=?").run(name,id).changes!==1)throw new Error("Unknown user");return mapUser(db.prepare("SELECT * FROM users WHERE id=?").get(id) as Record<string,unknown>);}finally{db.close();}}
+export async function setActiveUser(id:string,file:string){const db=open(file);try{requireUser(db,id);db.exec("BEGIN IMMEDIATE");try{db.prepare("UPDATE users SET isActive=0").run();db.prepare("UPDATE users SET isActive=1 WHERE id=?").run(id);db.prepare("INSERT INTO app_state VALUES('lastUserId',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(id);db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}}finally{db.close();}}
+export async function getActiveUser(file:string):Promise<User|undefined>{const db=open(file);try{const r=db.prepare("SELECT u.* FROM users u JOIN app_state a ON a.value=u.id WHERE a.key='lastUserId'").get() as Record<string,unknown>|undefined;return r?mapUser(r):undefined;}finally{db.close();}}
+export const setLastUser=setActiveUser; export const getLastUser=getActiveUser;
+export async function deleteUser(id:string,file:string){const db=open(file);try{requireUser(db,id);db.exec("BEGIN IMMEDIATE");try{db.prepare("DELETE FROM learning_states WHERE userId=?").run(id);db.prepare("DELETE FROM wrong_question_operations WHERE userId=?").run(id);db.prepare("DELETE FROM attempts WHERE userId=?").run(id);db.prepare("DELETE FROM session_questions WHERE sessionId IN (SELECT id FROM sessions WHERE userId=?)").run(id);db.prepare("DELETE FROM sessions WHERE userId=?").run(id);db.prepare("DELETE FROM users WHERE id=?").run(id);db.prepare("DELETE FROM app_state WHERE key='lastUserId' AND value=?").run(id);db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}}finally{db.close();}}
+export async function createSession(input:{userId:string;type:SessionType;questionExternalIds:string[]},file:string):Promise<Session>{const db=open(file);try{if(!input.questionExternalIds.length||new Set(input.questionExternalIds).size!==input.questionExternalIds.length)throw new Error("Session plan must contain unique questions");requireUser(db,input.userId);const id=randomUUID();db.exec("BEGIN IMMEDIATE");try{db.prepare("INSERT INTO sessions VALUES(?,?,?,'in_progress',?,?,NULL,NULL)").run(id,input.userId,input.type,input.questionExternalIds.length,now());const q=db.prepare("INSERT INTO session_questions VALUES(?,?,?,NULL)");input.questionExternalIds.forEach((x,i)=>q.run(id,x,i));db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}return session(db,id);}finally{db.close();}}
+export async function getSession(id:string,file:string){const db=open(file);try{return session(db,id)}finally{db.close();}}
+export async function getCurrentSession(userId:string,file:string):Promise<Session|undefined>{const db=open(file);try{const r=db.prepare("SELECT id FROM sessions WHERE userId=? AND status='in_progress'").get(userId) as {id:string}|undefined;return r?session(db,r.id):undefined;}finally{db.close();}}
+export async function getSessionQuestions(sessionId:string,file:string):Promise<SessionQuestion[]>{const db=open(file);try{return (db.prepare("SELECT * FROM session_questions WHERE sessionId=? ORDER BY sequence").all(sessionId) as Record<string,unknown>[]).map(r=>({sessionId:String(r.sessionId),questionExternalId:String(r.questionExternalId),sequence:Number(r.sequence),traversedAt:r.traversedAt as string|null}));}finally{db.close();}}
+export async function advanceSession(sessionId:string,questionExternalId:string,file:string){const db=open(file);try{if(session(db,sessionId).status!=="in_progress")throw new Error("Session is not in progress");db.exec("BEGIN IMMEDIATE");try{if(db.prepare("UPDATE session_questions SET traversedAt=? WHERE sessionId=? AND questionExternalId=? AND traversedAt IS NULL").run(now(),sessionId,questionExternalId).changes!==1)throw new Error("Question is not current or pending");const s=session(db,sessionId);if(s.traversedQuestionCount===s.plannedQuestionCount)db.prepare("UPDATE sessions SET status='completed',finishedAt=? WHERE id=?").run(now(),sessionId);db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}return session(db,sessionId);}finally{db.close();}}
+export async function finishSession(sessionId:string,file:string){const db=open(file);try{const s=session(db,sessionId);if(s.status!=="in_progress"||s.traversedQuestionCount!==s.plannedQuestionCount)throw new Error("Only a fully traversed session can finish");db.prepare("UPDATE sessions SET status='completed',finishedAt=? WHERE id=?").run(now(),sessionId);return session(db,sessionId);}finally{db.close();}}
+export async function endSessionEarly(sessionId:string,file:string){const db=open(file);try{if(session(db,sessionId).status!=="in_progress")throw new Error("Session is not in progress");db.prepare("UPDATE sessions SET status='ended',finishedAt=? WHERE id=?").run(now(),sessionId);return session(db,sessionId);}finally{db.close();}}
+export async function submitAttempt(input:SubmitAttemptInput,file:string):Promise<Attempt>{const db=open(file);try{requireUser(db,input.userId);if(!input.submissionId.trim())throw new Error("submissionId is required");if(!Number.isInteger(input.cumulativeAnswerDuration)||input.cumulativeAnswerDuration<0)throw new Error("Invalid cumulativeAnswerDuration");const duplicate=db.prepare("SELECT * FROM attempts WHERE submissionId=?").get(input.submissionId) as Record<string,unknown>|undefined;if(duplicate)return mapAttempt(duplicate);if(input.learningContext==="wrongReview"){if(input.sessionId)throw new Error("wrongReview attempts cannot belong to a session");}else{if(!input.sessionId)throw new Error("Training attempts require a session");const s=session(db,input.sessionId);if(s.userId!==input.userId||s.type!==input.learningContext||s.status!=="in_progress")throw new Error("Attempt session context mismatch");const q=db.prepare("SELECT sequence,traversedAt FROM session_questions WHERE sessionId=? AND questionExternalId=?").get(input.sessionId,input.questionExternalId) as {sequence:number;traversedAt:string|null}|undefined;if(!q||q.traversedAt)throw new Error("Question is not currently answerable");const prior=db.prepare("SELECT 1 FROM session_questions WHERE sessionId=? AND sequence<? AND traversedAt IS NULL").get(input.sessionId,q.sequence);if(prior)throw new Error("Cannot submit a future session question");}const a:Attempt={...input,id:randomUUID(),submittedAt:now()};db.exec("BEGIN IMMEDIATE");try{db.prepare("INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?)").run(a.id,a.submissionId,a.userId,a.questionExternalId,a.submittedAnswer,a.isCorrect?1:0,a.submittedAt,a.cumulativeAnswerDuration,a.sessionId,a.learningContext);recalc(db,a.userId,a.questionExternalId);db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");const row=db.prepare("SELECT * FROM attempts WHERE submissionId=?").get(a.submissionId) as Record<string,unknown>|undefined;if(row)return mapAttempt(row);throw e;}return a;}finally{db.close();}}
+/** M2.1-A compatibility helper; new callers should provide a submissionId to submitAttempt. */
+export async function appendAttempt(input: Omit<SubmitAttemptInput, "submissionId"> & { submissionId?: string }, file: string) { return submitAttempt({ ...input, submissionId: input.submissionId ?? randomUUID() }, file); }
+export async function getAttempts(file:string,userId?:string):Promise<Attempt[]>{const db=open(file);try{return (db.prepare(`SELECT * FROM attempts ${userId?"WHERE userId=?":""} ORDER BY submittedAt,id`).all(...(userId?[userId]:[])) as Record<string,unknown>[]).map(mapAttempt);}finally{db.close();}}
+export async function removeWrongQuestion(userId:string,questionExternalId:string,file:string){const db=open(file);try{requireUser(db,userId);const state=db.prepare("SELECT isWrong FROM learning_states WHERE userId=? AND questionExternalId=?").get(userId,questionExternalId) as {isWrong:number}|undefined;if(!state||!yes(state.isWrong))throw new Error("Question is not currently in the wrong book");db.exec("BEGIN IMMEDIATE");try{db.prepare("INSERT INTO wrong_question_operations VALUES(?,?,?,'remove',?)").run(randomUUID(),userId,questionExternalId,now());recalc(db,userId,questionExternalId);db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}}finally{db.close();}}
+export async function getLearningState(userId:string,questionExternalId:string,file:string):Promise<LearningState|undefined>{const db=open(file);try{const r=db.prepare("SELECT * FROM learning_states WHERE userId=? AND questionExternalId=?").get(userId,questionExternalId) as Record<string,unknown>|undefined;return r?{userId:String(r.userId),questionExternalId:String(r.questionExternalId),isWrong:yes(r.isWrong),lastAttemptAt:r.lastAttemptAt as string|null,updatedAt:String(r.updatedAt)}:undefined;}finally{db.close();}}
+export async function getWrongQuestionIds(userId:string,file:string):Promise<string[]>{const db=open(file);try{return (db.prepare("SELECT questionExternalId FROM learning_states WHERE userId=? AND isWrong=1 ORDER BY updatedAt DESC").all(userId) as {questionExternalId:string}[]).map(r=>r.questionExternalId);}finally{db.close();}}
+export async function invalidateSession(sessionId:string,file:string){const db=open(file);try{const s=session(db,sessionId);if(s.status==="invalidated")return s;const ids=(db.prepare("SELECT DISTINCT questionExternalId FROM attempts WHERE sessionId=?").all(sessionId) as {questionExternalId:string}[]).map(r=>r.questionExternalId);db.exec("BEGIN IMMEDIATE");try{db.prepare("UPDATE sessions SET status='invalidated',invalidatedAt=? WHERE id=?").run(now(),sessionId);ids.forEach(id=>recalc(db,s.userId,id));db.exec("COMMIT");}catch(e){db.exec("ROLLBACK");throw e;}return session(db,sessionId);}finally{db.close();}}

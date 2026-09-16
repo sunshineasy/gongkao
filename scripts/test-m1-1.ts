@@ -9,7 +9,7 @@ async function main() {
   assert.equal(normalizeQuestionText("&emsp;A&nbsp;&amp; B&lt;br&gt;<p>C&#x4E2D;&#25991;</p>"), "A & B\nC中文");
   assert.equal(toMediaPublicPath("media/chart one.png"), "/media/media/chart%20one.png");
   assert.throws(() => toMediaPublicPath("../secret.png"));
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "gongkao-v1-m11-")); const file = path.join(root, "question-bank.db");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "gongkao-m11-")); const file = path.join(root, "question-bank.db");
   const bank = JSON.parse(await fs.readFile(path.join(process.cwd(), "fixtures/import-trials/fei98/question-bank-v1.json"), "utf8")); await importQuestionBankV1(bank, file);
   const entityQuestion = await getStudyQuestion("fei98-imp-00f72bc22389", file); assert.ok(entityQuestion); assert.ok(!entityQuestion.stem.includes("&emsp;"));
   const mediaQuestion = await getStudyQuestion("fei98-imp-81b41cd5c586", file); assert.equal(mediaQuestion?.media.length, 2); for (const item of mediaQuestion?.media ?? []) assert.ok(await fs.stat(path.join(process.cwd(), "fixtures/import-trials/fei98", item.path)));

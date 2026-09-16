@@ -1,4 +1,4 @@
-# Gongkao V1 Decisions
+# Gongkao Decisions
 
 ## D001 — 行测 only
 Decision: V1 implements only 行测.  
@@ -31,7 +31,7 @@ Reason: The scope does not require an ORM.
 Consequence: Database code remains small and explicit.
 
 ## D007 — No legacy compatibility
-Decision: V1 does not continue the `gongkao-study` architecture or database.  
+Decision: The application does not continue any abandoned architecture or database.  
 Reason: The legacy project is retained in Git history.  
 Consequence: New code has no legacy migration path.
 
