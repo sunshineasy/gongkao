@@ -8,6 +8,11 @@
 </head>
 <body>
   <main id="app" aria-live="polite">加载中…</main>
+  <script>
+    window.addEventListener("error", () => {
+      document.querySelector("#app").innerHTML = "<section class=\"notice\"><b>页面暂时无法启动</b><span>请刷新页面后重试。</span></section>";
+    });
+  </script>
   <script src="/app.js"></script>
 </body>
 </html>
