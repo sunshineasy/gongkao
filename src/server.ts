@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { initializeApplicationData, questionBankFile, userDataFile } from "./lib/app-data.js";
@@ -9,7 +10,9 @@ import { getStudyBankSummary } from "./lib/study-question-bank.js";
 
 export type StudyServerOptions = { userDataFile: string; questionBankFile: string; webRoot?: string };
 type StudyPaths = Required<StudyServerOptions>;
-const wrongReviewSeen = new Map<string, Set<string>>();
+type WrongReviewProcess = { id: string; seen: Set<string>; cleanup: NodeJS.Timeout };
+const wrongReviewProcesses = new Map<string, WrongReviewProcess>();
+const wrongReviewLifetimeMs = 10 * 60 * 1000;
 
 const reply = (res: http.ServerResponse, status: number, value: unknown, type = "application/json; charset=utf-8") => {
   res.writeHead(status, { "content-type": type });
@@ -36,10 +39,28 @@ async function current(paths: StudyPaths) {
 }
 
 const questionView = (question: NonNullable<Awaited<ReturnType<typeof nextWrongReviewQuestion>>>) => ({ externalId: question.externalId, module: question.module, stem: question.stem, options: question.options.map(({ key, text }) => ({ key, text })), material: question.material && { title: question.material.title, content: question.material.content } });
-async function wrongReviewCurrent(userId: string, paths: StudyPaths) {
-  const seen = wrongReviewSeen.get(userId) ?? new Set<string>(); wrongReviewSeen.set(userId, seen);
-  const question = await nextWrongReviewQuestion({ userId, userDataFile: paths.userDataFile, questionBankFile: paths.questionBankFile, seen });
-  return question ? { state: "review" as const, question: questionView(question) } : { state: "review_completed" as const };
+function clearWrongReview(userId: string, reviewId?: string) {
+  const process = wrongReviewProcesses.get(userId);
+  if (!process || (reviewId && process.id !== reviewId)) return;
+  clearTimeout(process.cleanup); wrongReviewProcesses.delete(userId);
+}
+function startWrongReview(userId: string) {
+  clearWrongReview(userId);
+  const id = randomUUID();
+  const cleanup = setTimeout(() => clearWrongReview(userId, id), wrongReviewLifetimeMs);
+  const process: WrongReviewProcess = { id, seen: new Set(), cleanup };
+  wrongReviewProcesses.set(userId, process);
+  return process;
+}
+function requireWrongReview(userId: string, reviewId: string) {
+  const process = wrongReviewProcesses.get(userId);
+  if (!process || process.id !== reviewId) throw new Error("错题回顾已离开或已过期，请重新开始");
+  return process;
+}
+async function wrongReviewCurrent(userId: string, reviewId: string, paths: StudyPaths) {
+  const process = requireWrongReview(userId, reviewId);
+  const question = await nextWrongReviewQuestion({ userId, userDataFile: paths.userDataFile, questionBankFile: paths.questionBankFile, seen: process.seen });
+  return question ? { state: "review" as const, reviewId: process.id, question: questionView(question) } : { state: "review_completed" as const, reviewId: process.id };
 }
 async function learningStatus(userId: string, paths: StudyPaths, range: string) {
   const since = range === "7d" ? Date.now() - 7 * 24 * 60 * 60 * 1000 : -Infinity;
@@ -72,10 +93,11 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
   if (pathname === "/api/study/status") return reply(res, 200, await learningStatus(user.id, paths, url.searchParams.get("range") ?? "all"));
   if (pathname === "/api/study/history") return reply(res, 200, { sessions: await history(user.id, paths) });
   if (pathname === "/api/study/wrong-questions") return reply(res, 200, { questionExternalIds: await getWrongQuestionIds(user.id, paths.userDataFile) });
-  if (pathname === "/api/study/wrong-review/start") { wrongReviewSeen.set(user.id, new Set()); return reply(res, 200, await wrongReviewCurrent(user.id, paths)); }
-  if (pathname === "/api/study/wrong-review/forward") return reply(res, 200, await wrongReviewCurrent(user.id, paths));
-  if (pathname === "/api/study/wrong-review/leave") { wrongReviewSeen.delete(user.id); return reply(res, 200, { ok: true }); }
+  if (pathname === "/api/study/wrong-review/start") { const process = startWrongReview(user.id); return reply(res, 200, await wrongReviewCurrent(user.id, process.id, paths)); }
+  if (pathname === "/api/study/wrong-review/forward") return reply(res, 200, await wrongReviewCurrent(user.id, String(data.reviewId ?? ""), paths));
+  if (pathname === "/api/study/wrong-review/leave") { clearWrongReview(user.id, String(data.reviewId ?? "")); return reply(res, 200, { ok: true }); }
   if (pathname === "/api/study/wrong-review/submit") {
+    requireWrongReview(user.id, String(data.reviewId ?? ""));
     const result = await submitWrongReviewAnswer({ ...base, questionExternalId: String(data.questionExternalId ?? ""), selectedAnswer: String(data.selectedAnswer ?? ""), submissionId: String(data.submissionId ?? ""), cumulativeAnswerDuration: Number(data.answerDuration ?? 0) });
     return reply(res, 200, { submittedAnswer: result.attempt.submittedAnswer, isCorrect: result.isCorrect, correctAnswer: result.correctAnswer, explanation: result.explanation });
   }

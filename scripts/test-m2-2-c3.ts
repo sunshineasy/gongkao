@@ -23,11 +23,16 @@ async function main() {
     const review = await request("/api/study/wrong-review/start", "POST", {});
     assert.equal(review.body.state, "review"); assert.equal(review.body.question.externalId, qid, "recently entered wrong question is reviewed first");
     const beforeReview = (await getAttempts(userDataFile, a.id)).length;
-    const emptyAdvance = await request("/api/study/wrong-review/forward", "POST", {});
+    const emptyAdvance = await request("/api/study/wrong-review/forward", "POST", { reviewId: review.body.reviewId });
     assert.equal((await getAttempts(userDataFile, a.id)).length, beforeReview, "unanswered review forward makes no attempt");
     assert.equal(emptyAdvance.body.state, "review_completed", "seen review question is not immediately repeated");
+    assert.equal((await request("/api/study/wrong-review/forward", "POST", {})).status, 400, "a refreshed page without the in-memory review token cannot retain old seen state");
     const reviewAgain = await request("/api/study/wrong-review/start", "POST", {});
-    const correct = question.correctAnswer[0]; await request("/api/study/wrong-review/submit", "POST", { questionExternalId: reviewAgain.body.question.externalId, selectedAnswer: correct, submissionId: "review-correct", answerDuration: 4 });
+    assert.equal(reviewAgain.body.question.externalId, qid, "starting again resets the previous review seen set");
+    await request("/api/study/wrong-review/leave", "POST", { reviewId: reviewAgain.body.reviewId });
+    const reviewAfterLeave = await request("/api/study/wrong-review/start", "POST", {});
+    assert.equal(reviewAfterLeave.body.question.externalId, qid, "leaving resets the review seen set");
+    const correct = question.correctAnswer[0]; await request("/api/study/wrong-review/submit", "POST", { reviewId: reviewAfterLeave.body.reviewId, questionExternalId: reviewAfterLeave.body.question.externalId, selectedAnswer: correct, submissionId: "review-correct", answerDuration: 4 });
     assert.equal((await getLearningState(a.id, qid, userDataFile))?.isWrong, false, "correct review removes wrong state");
     const reviewAttempt = (await getAttempts(userDataFile, a.id)).find(x => x.submissionId === "review-correct")!;
     assert.equal(reviewAttempt.sessionId, null); assert.equal(reviewAttempt.learningContext, "wrongReview");
