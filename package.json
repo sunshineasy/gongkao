@@ -5,7 +5,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "lint": "tsc --noEmit",
+   "lint": "tsc --noEmit",
+    "test:all": "npm run lint && npm run build && npm run question-bank:validate && npm run test:m1 && npm run test:m1.1 && npm run study:v1-import:test && npm run test:m2.1-a && npm run test:m2.1-b && npm run test:m2.2-a && npm run test:m2.2-b",
+    "hooks:install": "git config core.hooksPath .githooks",
     "test:m1": "tsx scripts/test-m1.ts",
     "test:m1.1": "tsx scripts/test-m1-1.ts",
     "test:m2.1-a": "tsx scripts/test-m2-1-a.ts",
