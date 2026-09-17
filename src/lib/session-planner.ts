@@ -25,26 +25,26 @@ function chooseUnits(units: Unit[], target: number, random: PlannerRandom, exclu
   }
   return chosen.flatMap(unit => unit.questions.map(question => question.externalId));
 }
-export async function createPlannedSession(input: PlanInput): Promise<{ session: Session; created: boolean }> {
-  const ongoing = await getCurrentSession(input.userId, input.userDataFile);
-  if (ongoing) return { session: ongoing, created: false };
+export async function generateSessionPlan(input: PlanInput): Promise<{ type: SessionType; questionExternalIds: string[] }> {
   const random = input.random ?? Math.random;
   const ids = await getAllStudyQuestionIds(input.questionBankFile);
   const questions = (await Promise.all(ids.map(id => getStudyQuestion(id, input.questionBankFile)))).filter((q): q is StudyQuestion => !!q);
   const history = await getEffectiveLastAttempts(input.userId, input.userDataFile);
   const units = buildSelectionUnits(questions, history);
   const excludedQuestions = new Set(input.previousSessionId ? (await getSessionQuestions(input.previousSessionId, input.userDataFile)).map(question => question.questionExternalId) : []);
+  const excluded = new Set(units.filter(unit => unit.questions.some(question => excludedQuestions.has(question.externalId))).map(unit => unit.id));
   const byModule = new Map<string, Unit[]>(); for (const unit of units) byModule.set(unit.module, [...(byModule.get(unit.module) ?? []), unit]);
   const modules = [...byModule.keys()];
-  if (input.type === "special") {
-    if (!input.module || !byModule.has(input.module)) throw new Error("指定模块没有可训练题目");
-    const plan = chooseUnits(byModule.get(input.module)!, 30, random, new Set(units.filter(unit => unit.questions.some(question => excludedQuestions.has(question.externalId))).map(unit => unit.id)));
-    return { session: await createSession({ userId: input.userId, type: "special", questionExternalIds: plan }, input.userDataFile), created: true };
-  }
+  if (input.type === "special") { if (!input.module || !byModule.has(input.module)) throw new Error("指定模块没有可训练题目"); return { type: "special", questionExternalIds: chooseUnits(byModule.get(input.module)!, 30, random, excluded) }; }
   if (!modules.length) throw new Error("没有可训练题目");
   const count = modules.length === 1 ? 1 : modules.length === 2 ? 2 : Math.min(modules.length, random() < .5 ? 2 : 3);
   const previousModules = new Set(units.filter(unit => unit.questions.some(question => excludedQuestions.has(question.externalId))).map(unit => unit.module));
   const selected = shuffle(modules, random).sort((a,b) => Number(previousModules.has(a)) - Number(previousModules.has(b))).slice(0, count);
-  const plan = selected.flatMap(module => chooseUnits(byModule.get(module)!, 10, random, new Set(units.filter(unit => unit.questions.some(question => excludedQuestions.has(question.externalId))).map(unit => unit.id))));
-  return { session: await createSession({ userId: input.userId, type: "normal", questionExternalIds: plan }, input.userDataFile), created: true };
+  return { type: "normal", questionExternalIds: selected.flatMap(module => chooseUnits(byModule.get(module)!, 10, random, excluded)) };
+}
+export async function createPlannedSession(input: PlanInput): Promise<{ session: Session; created: boolean }> {
+  const ongoing = await getCurrentSession(input.userId, input.userDataFile);
+  if (ongoing) return { session: ongoing, created: false };
+  const plan = await generateSessionPlan(input);
+  return { session: await createSession({ userId: input.userId, type: plan.type, questionExternalIds: plan.questionExternalIds }, input.userDataFile), created: true };
 }

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 async function main() {
-  const source = await fs.readFile(path.join(process.cwd(), "src", "server.ts"), "utf8");
+  const source = await fs.readFile(path.join(process.cwd(), "src", "web", "app.js"), "utf8");
   assert.ok(source.includes("继续向下滚动"));
   assert.ok(source.includes("换一组"));
   assert.ok(!source.includes("progress bar"));

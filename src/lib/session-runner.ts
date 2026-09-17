@@ -1,6 +1,6 @@
 import { getStudyQuestion, type StudyQuestion } from "./study-question-bank.js";
-import { advanceSession, endSessionEarly, getAttempts, getCurrentSession, getSession, getSessionQuestions, submitAttempt, type Session } from "./user-data.js";
-import { createPlannedSession, type PlannerRandom } from "./session-planner.js";
+import { advanceSession, getAttempts, getCurrentSession, getSession, getSessionQuestions, replaceOngoingSession, submitAttempt, type Session } from "./user-data.js";
+import { generateSessionPlan, type PlannerRandom } from "./session-planner.js";
 
 export type RunnerInput = { userId: string; userDataFile: string; questionBankFile: string };
 export type SessionProgress = { session: Session; question: StudyQuestion | null; autoAdvancedMissing: number };
@@ -38,6 +38,6 @@ export async function refreshSession(input: RunnerInput & { random?: PlannerRand
   const current = await getCurrentSession(input.userId, input.userDataFile); if (!current) throw new Error("没有进行中的训练");
   const first = (await getSessionQuestions(current.id, input.userDataFile))[0];
   const module = first ? (await getStudyQuestion(first.questionExternalId, input.questionBankFile))?.module ?? undefined : undefined;
-  await endSessionEarly(current.id, input.userDataFile);
-  return createPlannedSession({ userId: input.userId, type: current.type, module: current.type === "special" ? module : undefined, previousSessionId: current.id, userDataFile: input.userDataFile, questionBankFile: input.questionBankFile, random: input.random });
+  const plan = await generateSessionPlan({ userId: input.userId, type: current.type, module: current.type === "special" ? module : undefined, previousSessionId: current.id, userDataFile: input.userDataFile, questionBankFile: input.questionBankFile, random: input.random });
+  return { session: await replaceOngoingSession({ userId: input.userId, oldSessionId: current.id, type: plan.type, questionExternalIds: plan.questionExternalIds }, input.userDataFile), created: true };
 }
