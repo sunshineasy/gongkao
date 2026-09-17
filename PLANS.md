@@ -2,9 +2,16 @@
 
 - DONE M0.x 前期原型与定型：项目初始化、Frozen V1 题库导入、双 SQLite、真实 50 题验证和界面问题修复。
 - DONE M1 正式基线：最小刷题闭环、作答持久化、文本规范化、媒体展示、清晰的结果与错误状态。
-- TODO M2 Favorites, mistakes and history.
-- TODO M3 Today and module practice.
-- TODO M4 Basic statistics.
-- TODO M5 Media and image-question polish.
-- TODO M6 UI polish.
-- TODO M7 V1.0 stability acceptance.
+
+## M2 正式路线
+
+详细范围与状态见 [M2 路线](docs/M2_ROADMAP.md)。
+
+- DONE M2.1 数据地基。
+- DONE M2.2 学习引擎。
+- PLANNED M2.3 学习状态：核心事实统计与错题入口已在 M2.2-C3 提前实现，后续不重复开发。
+- PLANNED M2.4 历史与专项：核心训练历史、撤销和专项训练已在 M2.2-C3 前后实现，后续不重复开发。
+- PARTIAL M2.5 数据仪表盘：已有基础数据能力，正式仪表盘与学习状态体验仍待设计实现。
+- TODO M2.6 UI 整合与硬化。
+
+M2 边界固定为本地学习闭环；不引入云同步、网络账号、社交、AI 诊断/推荐、掌握度/能力模型或题目版本化等未来内容。
