@@ -1,10 +1,11 @@
 const app = document.querySelector("#app");
-let state, answered = false, startedAt = 0, elapsed = 0, forwardArmed = false, busy = false, touchStartY = 0, reviewMode = false, reviewId = null;
+let state, answered = false, startedAt = 0, elapsed = 0, forwardArmed = false, busy = false, touchStartY = 0, pullDistance = 0, reviewMode = false, reviewId = null;
 
 const esc = value => String(value ?? "").replace(/[&<>]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
 const shell = content => `<div class="shell">${content}</div>`;
 const topbar = user => `<header class="topbar"><span class="brand">gongkao</span>${user ? `<button class="quiet" id="account">${esc(user.nickname)}</button>` : ""}</header>`;
-const errorView = error => `<p class="error">${esc(error.message || "操作失败")}</p>`;
+const errorView = () => `<p class="error">暂时没能完成操作，请稍后重试。</p>`;
+const loadingView = () => shell(`<div class="loading">正在准备学习内容…</div>`);
 
 async function api(url, method = "GET", data) {
   const response = await fetch(url, { method, headers: { "content-type": "application/json" }, body: data ? JSON.stringify(data) : undefined });
@@ -24,15 +25,18 @@ async function forward() {
   try { if (reviewMode) return renderReview(await api("/api/study/wrong-review/forward", "POST", { reviewId })); await api("/api/study/forward", "POST", {}); await load(); } catch (error) { app.insertAdjacentHTML("beforeend", errorView(error)); } finally { busy = false; }
 }
 
-function downwardIntent() {
-  if (!atBottom()) { forwardArmed = false; return; }
-  if (forwardArmed) { forwardArmed = false; void forward(); return; }
-  forwardArmed = true;
+function updatePull() { const node = app.querySelector(".continue"); if (node) node.classList.toggle("pulling", pullDistance > 0 && !forwardArmed); if (node) node.classList.toggle("ready", forwardArmed); }
+function downwardIntent(distance = 0, release = false) {
+  if (!atBottom()) { forwardArmed = false; pullDistance = 0; updatePull(); return; }
+  pullDistance = Math.min(150, pullDistance + distance);
+  if (pullDistance >= 100) forwardArmed = true;
+  updatePull();
+  if (release && forwardArmed) { forwardArmed = false; pullDistance = 0; void forward(); }
 }
 
-addEventListener("wheel", event => { if (event.deltaY > 0) downwardIntent(); else forwardArmed = false; }, { passive: true });
+addEventListener("wheel", event => { if (event.deltaY > 0) { downwardIntent(Math.min(event.deltaY, 45)); if (forwardArmed && event.deltaY > 35) downwardIntent(0, true); } else { forwardArmed = false; pullDistance = 0; updatePull(); } }, { passive: true });
 addEventListener("touchstart", event => { touchStartY = event.touches[0].clientY; }, { passive: true });
-addEventListener("touchend", event => { if (touchStartY - event.changedTouches[0].clientY > 45) downwardIntent(); }, { passive: true });
+addEventListener("touchend", event => { const distance = touchStartY - event.changedTouches[0].clientY; if (distance > 0) downwardIntent(distance, true); }, { passive: true });
 addEventListener("visibilitychange", () => document.hidden ? pauseTimer() : resumeTimer());
 
 function bindAccount(user) {
@@ -94,7 +98,7 @@ function renderCompleted(current) {
 function renderQuestion(current) {
   reviewMode = false; reviewId = null;
   const question = current.question;
-  answered = false; elapsed = 0; forwardArmed = false;
+  answered = false; elapsed = 0; forwardArmed = false; pullDistance = 0;
   app.innerHTML = shell(`${topbar(current.user)}<div><button class="quiet" id="refresh">换一组</button><button class="quiet" id="special">专项训练</button></div><article><div class="module">${esc(question.module || "")}</div>${question.material ? `<section class="material">${question.material.title ? `<div class="material-title">${esc(question.material.title)}</div>` : ""}${esc(question.material.content || "")}</section>` : ""}<h1 class="question-title">${esc(question.stem)}</h1><div class="options">${question.options.map(option => `<button class="option" data-answer="${esc(option.key)}"><b>${esc(option.key)}.</b> ${esc(option.text)}</button>`).join("")}</div></article><section class="continue"><div><p>继续向下滚动，进入下一题</p><button class="secondary" id="continue">继续向下</button></div></section>`);
   bindAccount(current.user);
   app.querySelector("#refresh").onclick = async () => { await api("/api/study/refresh", "POST", {}); await load(); };
@@ -119,7 +123,7 @@ async function submit(answer) {
 async function startReview(user) { reviewMode = true; renderReview(await api("/api/study/wrong-review/start", "POST", {}), user); }
 function renderReview(review, user = state.user) {
   reviewId = review.reviewId;
-  answered = false; elapsed = 0; forwardArmed = false;
+  answered = false; elapsed = 0; forwardArmed = false; pullDistance = 0;
   if (review.state === "review_completed") { app.innerHTML = shell(`${topbar(user)}<section class="card completion"><span class="eyebrow">错题回顾</span><h1>本次回顾完成</h1><p class="muted">已回顾的题目不会在本次再次出现。</p><button class="primary" id="back-learning">返回学习</button></section>`); app.querySelector("#back-learning").onclick = async () => { await api("/api/study/wrong-review/leave", "POST", { reviewId }); reviewMode = false; reviewId = null; renderIdle(user); }; return; }
   const q = review.question;
   app.innerHTML = shell(`${topbar(user)}<div><button class="quiet" id="leave-review">结束回顾</button></div><article><div class="module">${esc(q.module || "")}</div>${q.material ? `<section class="material">${q.material.title ? `<div class="material-title">${esc(q.material.title)}</div>` : ""}${esc(q.material.content || "")}</section>` : ""}<h1 class="question-title">${esc(q.stem)}</h1><div class="options">${q.options.map(o => `<button class="option" data-answer="${esc(o.key)}"><b>${esc(o.key)}.</b> ${esc(o.text)}</button>`).join("")}</div></article><section class="continue"><div><p>继续向下滚动，进入下一题</p><button class="secondary" id="continue">继续向下</button></div></section>`);
@@ -134,11 +138,11 @@ async function renderWrongBook(user) { const d = await api("/api/study/wrong-que
 async function renderHistory(user) { const d = await api("/api/study/history"); app.innerHTML = shell(`${topbar(user)}<section class="card"><span class="eyebrow">训练历史</span><h1>每次训练</h1>${d.sessions.length ? d.sessions.map(x => `<div class="history-row"><div><b>${x.type === "special" ? "专项训练" : "普通训练"}</b><span>${x.status === "completed" ? "已完成" : x.status === "ended" ? "提前结束" : x.status === "invalidated" ? "已撤销" : "进行中"} · 已作答 ${x.completion.answeredCount} · ${x.completion.answerDuration} 秒</span></div>${x.status !== "invalidated" ? `<button class="text-button" data-invalidate="${esc(x.id)}">撤销这次训练</button>` : ""}</div>`).join("") : `<p class="muted">还没有训练记录。</p>`}<button class="text-button" id="back">返回学习</button></section>`); app.querySelectorAll("[data-invalidate]").forEach(b => b.onclick = async () => { await api("/api/study/history/invalidate", "POST", { sessionId: b.dataset.invalidate }); await renderHistory(user); }); app.querySelector("#back").onclick = () => void renderIdle(user); }
 
 async function load() {
-  pauseTimer(); state = await api("/api/study/current");
+  pauseTimer(); app.setAttribute("aria-busy", "true"); if (!app.children.length) app.innerHTML = loadingView(); state = await api("/api/study/current"); app.removeAttribute("aria-busy");
   if (state.state === "no_user") return renderCreateUser();
   if (state.state === "idle") return renderIdle(state.user);
   if (state.state === "completed") return renderCompleted(state);
   renderQuestion(state);
 }
 
-void load().catch(error => { app.innerHTML = shell(errorView(error)); });
+void load().catch(() => { app.removeAttribute("aria-busy"); app.innerHTML = shell(errorView()); });
