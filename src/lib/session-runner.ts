@@ -21,7 +21,7 @@ export async function submitCurrentAnswer(input: RunnerInput & { selectedAnswer:
   if (!progress.question.options.some(option => option.key === input.selectedAnswer)) throw new Error("答案选项无效");
   const isCorrect = progress.question.correctAnswer.includes(input.selectedAnswer);
   const attempt = await submitAttempt({ userId: input.userId, questionExternalId: progress.question.externalId, submittedAnswer: input.selectedAnswer, isCorrect, cumulativeAnswerDuration: input.cumulativeAnswerDuration, sessionId: progress.session.id, learningContext: progress.session.type, submissionId: input.submissionId }, input.userDataFile);
-  return { attempt, isCorrect, correctAnswer: progress.question.correctAnswer };
+  return { attempt, isCorrect, correctAnswer: progress.question.correctAnswer, explanation: progress.question.explanation };
 }
 export async function forwardCurrent(input: RunnerInput) {
   const progress = await resumeSession(input); if (!progress?.question || progress.session.userId !== input.userId) throw new Error("没有可前进的当前题目");
