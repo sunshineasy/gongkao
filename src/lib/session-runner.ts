@@ -1,5 +1,5 @@
 import { getStudyQuestion, type StudyQuestion } from "./study-question-bank.js";
-import { advanceSession, getAttempts, getCurrentSession, getSession, getSessionQuestions, replaceOngoingSession, submitAttempt, type Session } from "./user-data.js";
+import { advanceSession, getAttempts, getCurrentSession, getSession, getSessionQuestions, getWrongQuestionIds, replaceOngoingSession, submitAttempt, type Session } from "./user-data.js";
 import { generateSessionPlan, type PlannerRandom } from "./session-planner.js";
 
 export type RunnerInput = { userId: string; userDataFile: string; questionBankFile: string };
@@ -27,6 +27,24 @@ export async function forwardCurrent(input: RunnerInput) {
   const progress = await resumeSession(input); if (!progress?.question || progress.session.userId !== input.userId) throw new Error("没有可前进的当前题目");
   await advanceSession(progress.session.id, progress.question.externalId, input.userDataFile);
   return resumeSession(input);
+}
+export async function nextWrongReviewQuestion(input: RunnerInput & { seen: Set<string> }) {
+  for (const id of await getWrongQuestionIds(input.userId, input.userDataFile)) {
+    if (input.seen.has(id)) continue;
+    input.seen.add(id);
+    const question = await getStudyQuestion(id, input.questionBankFile);
+    if (question) return question;
+  }
+  return undefined;
+}
+export async function submitWrongReviewAnswer(input: RunnerInput & { questionExternalId: string; selectedAnswer: string; cumulativeAnswerDuration: number; submissionId: string }) {
+  if (!(await getWrongQuestionIds(input.userId, input.userDataFile)).includes(input.questionExternalId)) throw new Error("题目不在当前错题本中");
+  const question = await getStudyQuestion(input.questionExternalId, input.questionBankFile);
+  if (!question) throw new Error("题目已不存在，已安全跳过");
+  if (!question.options.some(option => option.key === input.selectedAnswer)) throw new Error("答案选项无效");
+  const isCorrect = question.correctAnswer.includes(input.selectedAnswer);
+  const attempt = await submitAttempt({ userId: input.userId, questionExternalId: question.externalId, submittedAnswer: input.selectedAnswer, isCorrect, cumulativeAnswerDuration: input.cumulativeAnswerDuration, sessionId: null, learningContext: "wrongReview", submissionId: input.submissionId }, input.userDataFile);
+  return { attempt, isCorrect, correctAnswer: question.correctAnswer, explanation: question.explanation };
 }
 export async function getCompletionStats(sessionId: string, userDataFile: string) {
   const session = await getSession(sessionId, userDataFile);
