@@ -14,7 +14,7 @@ export function buildSelectionUnits(questions: StudyQuestion[], history: Map<str
     const key = question.materialExternalId ? `material:${question.materialExternalId}` : `question:${question.externalId}`;
     grouped.set(key, [...(grouped.get(key) ?? []), question]);
   }
-  return [...grouped.entries()].map(([id, group]) => ({ id, module: group[0].module!, questions: group.sort((a, b) => a.externalId.localeCompare(b.externalId)), newCount: group.filter(q => !history.has(q.externalId)).length, oldest: Math.min(...group.map(q => stamp(history.get(q.externalId)))) }));
+  return [...grouped.entries()].map(([id, group]) => ({ id, module: group[0].module!, questions: group, newCount: group.filter(q => !history.has(q.externalId)).length, oldest: Math.min(...group.map(q => stamp(history.get(q.externalId)))) }));
 }
 function chooseUnits(units: Unit[], target: number, random: PlannerRandom, excluded: Set<string>) {
   const ranked = shuffle(units, random).sort((a,b) => b.newCount - a.newCount || a.oldest - b.oldest || Number(excluded.has(a.id)) - Number(excluded.has(b.id)));
