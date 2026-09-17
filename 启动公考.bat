@@ -5,6 +5,10 @@ title Gongkao V1 Server
 
 cd /d "%~dp0"
 
+set "PORT_PID="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":3000 .*LISTENING"') do set "PORT_PID=%%P"
+if defined PORT_PID goto :already_running
+
 where node >nul 2>&1
 if errorlevel 1 goto :node_missing
 
@@ -26,6 +30,13 @@ echo.
 echo [错误] Gongkao V1 服务已停止或启动失败。
 pause
 exit /b 1
+
+:already_running
+echo.
+echo Gongkao is already running on http://localhost:3000 (PID %PORT_PID%).
+echo Opening the existing service instead of starting another copy.
+start "" http://localhost:3000
+exit /b 0
 
 :node_missing
 echo [错误] 未找到 Node.js。请安装 Node.js 后重试。
