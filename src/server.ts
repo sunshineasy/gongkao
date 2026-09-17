@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { initializeApplicationData, questionBankFile, userDataFile } from "./lib/app-data.js";
-import { createUser, getActiveUser, getEffectiveAttempts, getLatestSession, getSession, getWrongQuestionIds, invalidateSession, listSessions, listUsers, removeWrongQuestion, replaceOngoingSession, setActiveUser } from "./lib/user-data.js";
+import { createUser, getActiveUser, getCurrentSession, getEffectiveAttempts, getLatestSession, getSession, getWrongQuestionIds, invalidateSession, listSessions, listUsers, removeWrongQuestion, replaceOngoingSession, setActiveUser, type Attempt } from "./lib/user-data.js";
 import { createPlannedSession, generateSessionPlan } from "./lib/session-planner.js";
 import { forwardCurrent, getCompletionStats, nextWrongReviewQuestion, refreshSession, resumeSession, submitCurrentAnswer, submitWrongReviewAnswer } from "./lib/session-runner.js";
 import { getStudyBankSummary } from "./lib/study-question-bank.js";
@@ -62,11 +62,28 @@ async function wrongReviewCurrent(userId: string, reviewId: string, paths: Study
   const question = await nextWrongReviewQuestion({ userId, userDataFile: paths.userDataFile, questionBankFile: paths.questionBankFile, seen: process.seen });
   return question ? { state: "review" as const, reviewId: process.id, question: questionView(question) } : { state: "review_completed" as const, reviewId: process.id };
 }
-async function learningStatus(userId: string, paths: StudyPaths, range: string) {
+const dayKey = (time: number) => new Date(time).toISOString().slice(0, 10);
+const weekKey = (time: number) => { const date = new Date(time); const offset = (date.getUTCDay() + 6) % 7; date.setUTCDate(date.getUTCDate() - offset); return dayKey(date.getTime()); };
+const monthKey = (time: number) => new Date(time).toISOString().slice(0, 7);
+export function buildLearningTrend(attempts: Attempt[], range: "7d" | "all", now = Date.now()) {
+  const oldest = attempts.length ? Math.min(...attempts.map(item => Date.parse(item.submittedAt))) : now;
+  const spanDays = Math.max(1, Math.ceil((now - oldest) / 86400000));
+  const granularity = range === "7d" || spanDays <= 31 ? "day" : spanDays <= 180 ? "week" : "month";
+  const key = granularity === "day" ? dayKey : granularity === "week" ? weekKey : monthKey;
+  const grouped = new Map<string, Attempt[]>();
+  for (const attempt of attempts) { const label = key(Date.parse(attempt.submittedAt)); grouped.set(label, [...(grouped.get(label) ?? []), attempt]); }
+  if (range === "7d") for (let offset = 6; offset >= 0; offset--) { const label = dayKey(now - offset * 86400000); if (!grouped.has(label)) grouped.set(label, []); }
+  return { granularity, points: [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, items]) => ({ label, answeredCount: items.length, correctCount: items.filter(item => item.isCorrect).length, accuracy: items.length ? items.filter(item => item.isCorrect).length / items.length : null })) };
+}
+async function learningStatus(userId: string, paths: StudyPaths, requestedRange: string) {
+  const range = requestedRange === "7d" ? "7d" as const : "all" as const;
+  const effectiveAttempts = await getEffectiveAttempts(userId, paths.userDataFile);
   const since = range === "7d" ? Date.now() - 7 * 24 * 60 * 60 * 1000 : -Infinity;
-  const attempts = (await getEffectiveAttempts(userId, paths.userDataFile)).filter(item => Date.parse(item.submittedAt) >= since);
+  const attempts = effectiveAttempts.filter(item => Date.parse(item.submittedAt) >= since);
   const correctCount = attempts.filter(item => item.isCorrect).length;
-  return { range: range === "7d" ? "7d" : "all", answeredCount: attempts.length, correctCount, wrongCount: attempts.length - correctCount, accuracy: attempts.length ? correctCount / attempts.length : null, answerDuration: attempts.reduce((sum, item) => sum + item.cumulativeAnswerDuration, 0), wrongCountCurrent: (await getWrongQuestionIds(userId, paths.userDataFile)).length };
+  const answerDuration = attempts.reduce((sum, item) => sum + item.cumulativeAnswerDuration, 0);
+  const currentSession = await getCurrentSession(userId, paths.userDataFile);
+  return { range, answeredCount: attempts.length, correctCount, wrongCount: attempts.length - correctCount, accuracy: attempts.length ? correctCount / attempts.length : null, answerDuration, averageAnswerDuration: attempts.length ? answerDuration / attempts.length : null, wrongCountCurrent: (await getWrongQuestionIds(userId, paths.userDataFile)).length, currentTraining: currentSession ? { state: "ongoing" as const, type: currentSession.type } : { state: "ready" as const }, trend: buildLearningTrend(attempts, range) };
 }
 async function history(userId: string, paths: StudyPaths) {
   return Promise.all((await listSessions(userId, paths.userDataFile)).map(async session => ({ ...session, completion: await getCompletionStats(session.id, paths.userDataFile) })));
@@ -90,7 +107,8 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, ur
   const user = await getActiveUser(paths.userDataFile);
   if (!user) throw new Error("请先创建学习档案");
   const base = { userId: user.id, userDataFile: paths.userDataFile, questionBankFile: paths.questionBankFile };
-  if (pathname === "/api/study/status") return reply(res, 200, await learningStatus(user.id, paths, url.searchParams.get("range") ?? "all"));
+  if (pathname === "/api/study/status") return reply(res, 200, await learningStatus(user.id, paths, url.searchParams.get("range") ?? "7d"));
+  if (pathname === "/api/study/bank-summary") return reply(res, 200, await getStudyBankSummary(paths.questionBankFile));
   if (pathname === "/api/study/history") return reply(res, 200, { sessions: await history(user.id, paths) });
   if (pathname === "/api/study/wrong-questions") return reply(res, 200, { questionExternalIds: await getWrongQuestionIds(user.id, paths.userDataFile) });
   if (pathname === "/api/study/wrong-review/start") { const process = startWrongReview(user.id); return reply(res, 200, await wrongReviewCurrent(user.id, process.id, paths)); }
