@@ -1,7 +1,6 @@
-﻿@echo off
-chcp 65001 >nul
+@echo off
 setlocal
-title Gongkao V1 Server
+title Gongkao Server
 
 cd /d "%~dp0"
 
@@ -15,40 +14,36 @@ if errorlevel 1 goto :node_missing
 where npm.cmd >nul 2>&1
 if errorlevel 1 goto :npm_missing
 
-if exist "dist\server.js" goto :start_server
+if not exist "dist\server.js" (
+  echo Building Gongkao...
+  call npm.cmd run build
+  if errorlevel 1 goto :build_failed
+)
 
-echo 未发现生产构建，正在执行构建...
-call npm.cmd run build
-if errorlevel 1 goto :build_failed
-
-:start_server
-echo.
-echo 正在启动 Gongkao V1。浏览器将在服务准备后自动打开...
-start "" /b cmd.exe /d /c "ping -n 3 127.0.0.1 >nul & start http://localhost:3000"
+echo Starting Gongkao at http://localhost:3000 ...
+start "" /b cmd.exe /d /c "ping -n 3 127.0.0.1 >nul ^& start http://localhost:3000"
 call npm.cmd start
 echo.
-echo [错误] Gongkao V1 服务已停止或启动失败。
+echo Gongkao stopped or could not start.
 pause
 exit /b 1
 
 :already_running
-echo.
-echo Gongkao is already running on http://localhost:3000 (PID %PORT_PID%).
-echo Opening the existing service instead of starting another copy.
+echo Gongkao is already running at http://localhost:3000 (PID %PORT_PID%).
 start "" http://localhost:3000
 exit /b 0
 
 :node_missing
-echo [错误] 未找到 Node.js。请安装 Node.js 后重试。
+echo Node.js was not found. Install Node.js, then run this file again.
 pause
 exit /b 1
 
 :npm_missing
-echo [错误] 未找到 npm.cmd。请检查 Node.js 安装是否完整。
+echo npm.cmd was not found. Repair the Node.js installation, then try again.
 pause
 exit /b 1
 
 :build_failed
-echo [错误] 构建失败，服务未启动。
+echo Build failed. Gongkao was not started.
 pause
 exit /b 1
