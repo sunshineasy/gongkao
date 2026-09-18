@@ -13,7 +13,7 @@ async function main() {
   assert.match(html, /viewport/); assert.match(html, /aria-live/);
   for (const token of ["--ink", "--blue", "@media (max-width: 700px)", "prefers-reduced-motion"]) assert.ok(css.includes(token), `${token} is required for the responsive design system`);
   for (const state of [".study-stage", ".question-flow", ".material-context", ".question-prompt", ".answer-list", ".answer:hover", ".answer:focus-visible", ".answer:disabled", ".answer.correct", ".answer.wrong", ".answer-status", ".answer-reveal", ".answer-summary", ".explanation-copy", ".next-pull.armed"]) assert.ok(css.includes(state), `${state} is required for the reading-flow learning interface`);
-  for (const composition of [".status-page", ".companion", ".lulu-figure", ".facts-flow", ".actions-flow"]) assert.ok(css.includes(composition), `${composition} is required for the learning-status composition`);
+  for (const composition of [".status-page", ".recent-flow", ".companion-stage", ".lulu-figure", ".facts-flow", ".status-actions"]) assert.ok(css.includes(composition), `${composition} is required for the learning-status composition`);
   assert.ok(html.includes("pull-state.js"), "learning page loads the pull state controller"); assert.ok(js.includes("touchend"), "touch release advances only after the threshold"); assert.ok(js.includes('id="continue"'), "accessible continue fallback remains available");
   for (const pullFeature of ["pullThreshold=150", "showPull", "confirmPull", "resetPull", "if(busy)return"]) assert.ok(js.includes(pullFeature), `${pullFeature} keeps next-question navigation deliberate and reversible`);
   const pull = createPullState(150);
@@ -26,8 +26,12 @@ async function main() {
   const address = server.address(); assert.ok(address && typeof address !== "string");
   try { const response = await fetch(`http://127.0.0.1:${address.port}/pull-state.js`); assert.equal(response.status, 200); assert.match(response.headers.get("content-type") ?? "", /^application\/javascript; charset=utf-8$/); assert.match(await response.text(), /createPullState/); }
   finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  const statusStart = js.indexOf("async function renderStatus"), statusEnd = js.indexOf("async function renderManage", statusStart); assert.ok(statusStart >= 0 && statusEnd > statusStart, "learning status has its own rendering boundary");
+  const statusView = js.slice(statusStart, statusEnd);
+  for (const fact of ["正确率", "作答数", "平均作答用时", "7D", "ALL", "trend(s.trend)", "continue-learning", "wrongCountCurrent", "companion-stage", "管理"]) assert.ok(statusView.includes(fact), `${fact} remains part of the learning-status experience`);
+  assert.ok(statusView.includes("s.range"), "range switching uses the API-selected range"); assert.equal(statusView.includes("streak"), false, "learning status does not add gamified streak data");
   for (const screen of ["renderStatus", "renderManage", "renderHistory", "renderBank", "renderQuestion"]) assert.ok(js.includes(`function ${screen}`) || js.includes(`async function ${screen}`), `${screen} navigation state exists`);
-  assert.ok(js.includes('class="companion"'), "learning status reserves a real visual stage for 噜噜"); assert.equal(js.includes('class="metrics"'), false, "learning status does not use a KPI-card grid");
+  assert.ok(js.includes('class="companion-stage"'), "learning status reserves a real visual stage for 噜噜"); assert.equal(js.includes('class="metrics"'), false, "learning status does not use a KPI-card grid");
   for (const composition of ['class="study-chrome"', 'class="study-stage"', 'class="question-flow"', 'class="material-context"', 'class="answer-list"']) assert.ok(js.includes(composition), `${composition} keeps learning content in a deliberate reading hierarchy`);
   assert.ok(js.includes("正在准备学习内容"), "loading state is rendered"); assert.equal(js.includes("error.message ||"), false, "raw technical errors are not rendered");
   for (const feedback of ["aria-disabled", "classList.add(\"selected\"", "correctAnswer.includes(key)", "answer-status", "answer-summary", "explanation-copy", "app.querySelector(\".question-flow\")"]) assert.ok(js.includes(feedback), `${feedback} keeps submitted answers and feedback in the reading flow`);
