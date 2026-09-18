@@ -14,7 +14,10 @@
 }
 
 * { box-sizing: border-box; }
-body { min-width: 320px; margin: 0; }
+html { overflow-x: hidden; }
+body { min-width: 320px; margin: 0; overflow-x: hidden; }
+button,input { min-width: 0; }
+button { touch-action: manipulation; }
 
 .app-shell { max-width: 1180px; margin: auto; padding: 26px 44px 70px; }
 .top { display: flex; align-items: center; justify-content: space-between; }
@@ -320,6 +323,7 @@ button:focus-visible { outline: 3px solid #a9c0f5; outline-offset: 3px; }
 .special-list button:hover { padding-right: 10px; color: #344d88; background: #fafaf6; }
 .special-list i { color: var(--muted); font-style: normal; }
 .notice { display: grid; max-width: 500px; margin: 20vh auto; gap: 5px; border-radius: 14px; padding: 20px; color: #913c35; background: #fff2ef; }
+.notice span { color: #74433e; }
 .loading { display: grid; min-height: 70vh; place-items: center; color: var(--muted); }
 
 @media (max-width: 980px) {
@@ -367,6 +371,18 @@ button:focus-visible { outline: 3px solid #a9c0f5; outline-offset: 3px; }
   .status-actions button + button { border-top: 1px solid var(--line); border-left: 0; padding-left: 10px; }
   .ending-actions { align-items: flex-start; flex-direction: column; gap: 8px; }
   .module-strip { margin-top: 25px; }
+}
+
+@media (max-width: 380px) {
+  .app-shell { padding-right: 14px; padding-left: 14px; }
+  .top { gap: 8px; }
+  .profile { overflow: hidden; max-width: 42vw; text-overflow: ellipsis; white-space: nowrap; }
+  .study-actions { gap: 1px; }
+  .study-actions .text { padding-right: 3px; padding-left: 3px; }
+  .range-switch button { min-width: 42px; }
+  .status-footer { flex-wrap: wrap; }
+  .status-footer button:last-child { width: 100%; margin-left: 0; text-align: left; }
+  .manage-flow,.quiet-ending,.special-flow { margin-top: 8vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {
