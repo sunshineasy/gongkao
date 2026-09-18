@@ -9,7 +9,7 @@ async function main() {
   assert.match(css, /\.question-prompt h1/);
   assert.match(css, /\.material-context/);
   for (const feature of ["renderCreateUser", "renderIdle", "renderQuestion", "renderCompleted", "renderSpecialModules", "renderAccount"]) assert.ok(source.includes(`function ${feature}`), `${feature} must have a UI state`);
-  assert.ok(source.includes("armPull"), "forward has deliberate overscroll feedback");
+  assert.ok(source.includes("showPull"), "forward has deliberate overscroll feedback");
   assert.ok(source.includes("touchend"), "touch input is supported");
   assert.ok(source.includes("visibilitychange"), "hidden time is not counted");
   assert.ok(source.includes("correctAnswer.includes"), "all correct options receive feedback");
@@ -19,3 +19,4 @@ async function main() {
   console.log("M2.2-C2 tests: PASS");
 }
 void main();
+
