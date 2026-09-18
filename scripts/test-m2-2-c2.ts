@@ -6,7 +6,8 @@ async function main() {
   const webRoot = path.join(process.cwd(), "src", "web");
   const [html, css, source] = await Promise.all(["index.html", "app.css", "app.js"].map(file => fs.readFile(path.join(webRoot, file), "utf8")));
   assert.match(html, /<main id="app"/);
-  assert.match(css, /\.reading h1/);
+  assert.match(css, /\.question-prompt h1/);
+  assert.match(css, /\.material-context/);
   for (const feature of ["renderCreateUser", "renderIdle", "renderQuestion", "renderCompleted", "renderSpecialModules", "renderAccount"]) assert.ok(source.includes(`function ${feature}`), `${feature} must have a UI state`);
   assert.ok(source.includes("armPull"), "forward has deliberate overscroll feedback");
   assert.ok(source.includes("touchend"), "touch input is supported");
