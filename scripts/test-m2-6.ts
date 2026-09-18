@@ -10,6 +10,7 @@ async function main() {
   for (const state of [".study-stage", ".question-flow", ".material-context", ".question-prompt", ".answer-list", ".answer:hover", ".answer:focus-visible", ".answer:disabled", ".answer.correct", ".answer.wrong", ".answer-status", ".answer-reveal", ".answer-summary", ".explanation-copy", ".next-pull.armed"]) assert.ok(css.includes(state), `${state} is required for the reading-flow learning interface`);
   for (const composition of [".status-page", ".companion", ".lulu-figure", ".facts-flow", ".actions-flow"]) assert.ok(css.includes(composition), `${composition} is required for the learning-status composition`);
   assert.ok(js.includes("touchY-e.changedTouches[0].clientY>95"), "overscroll requires a deliberate touch threshold"); assert.ok(js.includes("touchend"), "touch release advances only after the threshold"); assert.ok(js.includes('id="continue"'), "accessible continue fallback remains available");
+  for (const pullFeature of ["pullThreshold=150", "showPull", "touchmove", "resetPull"]) assert.ok(js.includes(pullFeature), `${pullFeature} keeps next-question navigation deliberate and reversible`);
   for (const screen of ["renderStatus", "renderManage", "renderHistory", "renderBank", "renderQuestion"]) assert.ok(js.includes(`function ${screen}`) || js.includes(`async function ${screen}`), `${screen} navigation state exists`);
   assert.ok(js.includes('class="companion"'), "learning status reserves a real visual stage for 噜噜"); assert.equal(js.includes('class="metrics"'), false, "learning status does not use a KPI-card grid");
   for (const composition of ['class="study-chrome"', 'class="study-stage"', 'class="question-flow"', 'class="material-context"', 'class="answer-list"']) assert.ok(js.includes(composition), `${composition} keeps learning content in a deliberate reading hierarchy`);
@@ -19,3 +20,4 @@ async function main() {
   console.log("M2.6 tests: PASS");
 }
 void main();
+
