@@ -154,7 +154,7 @@ export function createStudyServer(options: StudyServerOptions) {
     try {
       const url = new URL(req.url ?? "/", "http://localhost"); const pathname = url.pathname;
       const staticFile = pathname === "/" ? "index.html" : pathname.slice(1);
-      if (["index.html", "app.js", "app.css"].includes(staticFile)) {
+      if (["index.html", "app.js", "app.css", "pull-state.js"].includes(staticFile)) {
         const type = staticFile.endsWith(".css") ? "text/css; charset=utf-8" : staticFile.endsWith(".js") ? "application/javascript; charset=utf-8" : "text/html; charset=utf-8";
         return reply(res, 200, await fs.readFile(path.join(paths.webRoot, staticFile), "utf8"), type);
       }
@@ -170,3 +170,4 @@ async function main() {
 }
 
 if (require.main === module) void main();
+
