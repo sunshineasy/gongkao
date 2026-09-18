@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import pullModule from "../src/web/pull-state.js";
+import { createStudyServer } from "../src/server.ts";
 
 const { createPullState } = pullModule as { createPullState: (threshold?: number) => { pull: (amount: number, options: { atBottom: boolean; busy: boolean }) => { distance: number; armed: boolean; triggering: boolean }; release: (options: { busy: boolean }) => { trigger: boolean; distance: number; armed: boolean; triggering: boolean }; reset: () => { distance: number; armed: boolean; triggering: boolean } } };
 
@@ -20,6 +22,10 @@ async function main() {
   pull.pull(150, { atBottom: true, busy: false }); assert.equal(pull.release({ busy: false }).trigger, true, "threshold arms exactly one advance"); assert.equal(pull.release({ busy: false }).trigger, false, "an armed pull cannot trigger twice");
   pull.reset(); pull.pull(150, { atBottom: true, busy: false }); assert.deepEqual(pull.reset(), { distance: 0, armed: false, triggering: false }, "reverse, release cancellation, and timer reset clear the pull");
   assert.deepEqual(pull.pull(150, { atBottom: true, busy: true }), { distance: 0, armed: false, triggering: false }, "busy navigation ignores extra input");
+  const server = createStudyServer({ userDataFile: path.join(process.cwd(), "tmp-unused-user.db"), questionBankFile: path.join(process.cwd(), "tmp-unused-bank.db") }); server.listen(0); await once(server, "listening");
+  const address = server.address(); assert.ok(address && typeof address !== "string");
+  try { const response = await fetch(`http://127.0.0.1:${address.port}/pull-state.js`); assert.equal(response.status, 200); assert.match(response.headers.get("content-type") ?? "", /^application\/javascript; charset=utf-8$/); assert.match(await response.text(), /createPullState/); }
+  finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   for (const screen of ["renderStatus", "renderManage", "renderHistory", "renderBank", "renderQuestion"]) assert.ok(js.includes(`function ${screen}`) || js.includes(`async function ${screen}`), `${screen} navigation state exists`);
   assert.ok(js.includes('class="companion"'), "learning status reserves a real visual stage for 噜噜"); assert.equal(js.includes('class="metrics"'), false, "learning status does not use a KPI-card grid");
   for (const composition of ['class="study-chrome"', 'class="study-stage"', 'class="question-flow"', 'class="material-context"', 'class="answer-list"']) assert.ok(js.includes(composition), `${composition} keeps learning content in a deliberate reading hierarchy`);
